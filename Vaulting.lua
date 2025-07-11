@@ -53,8 +53,5 @@ local CS = game:GetService("CollectionService")
 				end
 			end
 		end
-
+	end))	
 	
-	
-	return cons
-end
