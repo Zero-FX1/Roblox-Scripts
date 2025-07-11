@@ -223,5 +223,4 @@ currentBodyVelocity.Parent = humanoidRootPart
 		end
 	end))
 	
-	return cons
 
