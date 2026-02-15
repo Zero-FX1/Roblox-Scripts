@@ -31,7 +31,11 @@ end
 function Idle:Update(dt, context)
 	local humanoid = context.Humanoid
 	if humanoid.MoveDirection.Magnitude > 0.1 then
-		context.FSM:Change("Walking")
+		if context.UserInput.ShiftHeld then -- Run if holding shift and moving
+			context.FSM:Change("Running")
+		else -- else walk
+			context.FSM:Change("Walking")
+		end
 	end
 end
 
