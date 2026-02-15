@@ -26,6 +26,8 @@ end
 
 function Walking:Enter(context)
 	
+	context.Character.Humanoid.WalkSpeed = 16
+	
 	if self._track then
 		self._track:Play()
 	end
@@ -35,9 +37,10 @@ end
 function Walking:Update(dt, context)
 	local humanoid = context.Humanoid
 
-	if humanoid.MoveDirection.Magnitude <= 0.1 then
+	if humanoid.MoveDirection.Magnitude > 0.1 and context.UserInput.ShiftHeld then -- Holding shift walk
+		context.FSM:Change("Running")
+	elseif humanoid.MoveDirection.Magnitude <= 0.1 then -- Not moving idle
 		context.FSM:Change("Idle")
-		return
 	end
 
 	local speed = humanoid.WalkSpeed
@@ -45,6 +48,7 @@ function Walking:Update(dt, context)
 end
 
 function Walking:Exit(context)
+
 	if self._track then
 		self._track:Stop()
 		
