@@ -11,16 +11,36 @@ function Idle.new()
 	return setmetatable(State.new("Idle"), Idle)
 end
 
-function Idle:Enter(context)
-	print("Entering Idle")
+-- Load Animation
+function Idle:Setup(context)
+	local animator = context.Animator
+
+	local animation = context.Animations.Idle
+	self._track = animator:LoadAnimation(animation)
+
+	self._track.Looped = true
 end
 
-function Idle:Update(dt, context)
-	-- play idle animation or whatever
+function Idle:Enter(context)
+	if self._track then
+		self._track:Play()
+	end
 end
+
+-- Change state to walking fast enough
+function Idle:Update(dt, context)
+	local humanoid = context.Humanoid
+	if humanoid.MoveDirection.Magnitude > 0.1 then
+		context.FSM:Change("Walking")
+	end
+end
+
+
 
 function Idle:Exit(context)
-	print("Exiting Idle")
+	if self._track then
+		self._track:Stop()
+	
+	end
 end
-
 return Idle
