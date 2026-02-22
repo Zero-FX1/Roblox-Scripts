@@ -112,10 +112,14 @@ function StateMachine.new(context)
 	self._transitionQueue = {}
 	self._isTransitioning = false
 	
+	self._eventTransitions = {}
+	
 	self._history = {}
 	self.MaxHistory = 50
 	
 	self.Tags = {}
+	
+	self._lockedStates = {}
 
 	return self
 end
@@ -132,6 +136,10 @@ function StateMachine:_canTransition(nextState)
 	if tick() - self._lastTransition < self.TransitionCooldown then
 		return false
 	end
+	
+	if self._lockedStates[nextState.Name] then
+		return false
+	end
 
 	if self.CurrentState then
 		if not self.CurrentState:CanTransition(nextState, self.Context) then
@@ -146,6 +154,8 @@ end
 function StateMachine:Change(stateName)
 	local nextState = self._states[stateName]
 	if not nextState then return end
+	
+	local oldState = self.CurrentState
 
 	if self.CurrentState then
 		if not self.CurrentState:CanTransition(nextState, self.Context) then
@@ -170,15 +180,44 @@ function StateMachine:Change(stateName)
 
 	self.CurrentState = nextState
 	self.CurrentState:Enter(self.Context)
+	
+	self.StateChanged:Fire(
+		oldState and oldState.Name,
+		stateName
+	)
 
 	if self._debug then
 		print("[FSM] Changed to:", stateName)
 	end
 end
 
+function StateMachine:LockState(stateName)
+	self._lockedStates[stateName] = true
+end
+
+function StateMachine:UnlockState(stateName)
+	self._lockedStates[stateName] = nil
+end
+
 function StateMachine:IsCurrentTagged(tag)
 	if not self.CurrentState then return false end
 	return self.CurrentState:HasTag(tag)
+end
+
+function StateMachine:AddEventTransition(fromState, eventSignal, toState)
+	self._eventTransitions[fromState] =
+		self._eventTransitions[fromState] or {}
+
+	table.insert(self._eventTransitions[fromState], {
+		Event = eventSignal,
+		To = toState
+	})
+
+	eventSignal:Connect(function()
+		if self.CurrentState and self.CurrentState.Name == fromState then
+			self:Change(toState)
+		end
+	end)
 end
 
 function StateMachine:RequestChange(stateName)
@@ -193,6 +232,22 @@ function StateMachine:_processQueue()
 	self._isTransitioning = true
 	self:Change(nextState)
 	self._isTransitioning = false
+end
+
+
+-- Cleanup statemachine before destroying
+function StateMachine:Destroy()
+	self:Stop()
+
+	if self.CurrentState then
+		self.CurrentState:Exit(self.Context)
+		self.CurrentState:Cleanup()
+	end
+
+	self.StateChanged:Destroy()
+	table.clear(self._states)
+	table.clear(self.StateStack)
+	table.clear(self._conditionalTransitions)
 end
 
 -- Push a new state to the top of the stack
