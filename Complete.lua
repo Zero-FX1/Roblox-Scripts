@@ -63,6 +63,14 @@ function State:CanTransition(nextState, context)
 	return true
 end
 
+function State:AddTag(tag)
+	self.Tags[tag] = true
+end
+
+function State:HasTag(tag)
+	return self.Tags[tag] == true
+end
+
 -- Clears up connections to stop memory leaks
 function State:Cleanup()
 	for _, connection in self._connections do
@@ -88,17 +96,26 @@ function StateMachine.new(context)
 	self.StateStack = {}
 	self._states = {}
 	self._debug = false
-	
+
 
 	self._lastTransition = 0
 	self.TransitionCooldown = 0.05
-	
+
 	self._timer = 0
 	self._timedActive = false
 
 	self._conditionalTransitions = {}
+	self._globalTransitions = {}
 
 	self.StateChanged = Signal.new()
+	
+	self._transitionQueue = {}
+	self._isTransitioning = false
+	
+	self._history = {}
+	self.MaxHistory = 50
+	
+	self.Tags = {}
 
 	return self
 end
@@ -137,7 +154,19 @@ function StateMachine:Change(stateName)
 
 		self.CurrentState:Exit(self.Context)
 		self.CurrentState:Cleanup()
+		
+		table.insert(self._history, {
+			From = self.CurrentState and self.CurrentState.Name,
+			To = stateName,
+			Time = tick()
+		})
+
+		if #self._history > self.MaxHistory then
+			table.remove(self._history, 1)
+		end
 	end
+	
+	
 
 	self.CurrentState = nextState
 	self.CurrentState:Enter(self.Context)
@@ -147,15 +176,42 @@ function StateMachine:Change(stateName)
 	end
 end
 
+function StateMachine:IsCurrentTagged(tag)
+	if not self.CurrentState then return false end
+	return self.CurrentState:HasTag(tag)
+end
+
+function StateMachine:RequestChange(stateName)
+	table.insert(self._transitionQueue, stateName)
+end
+
+function StateMachine:_processQueue()
+	if self._isTransitioning then return end
+	if #self._transitionQueue == 0 then return end
+
+	local nextState = table.remove(self._transitionQueue, 1)
+	self._isTransitioning = true
+	self:Change(nextState)
+	self._isTransitioning = false
+end
+
 -- Push a new state to the top of the stack
 function StateMachine:Push(stateName)
 	if self.CurrentState then
 		table.insert(self.StateStack, self.CurrentState)
 		self.CurrentState:Exit(self.Context)
 	end
-	
+
 	self.CurrentState = self._states[stateName]
 	self.CurrentState:Enter(self.Context)
+end
+
+-- Create a global state transition
+function StateMachine:AddGlobalTransition(toState, conditionFn)
+	table.insert(self._globalTransitions, {
+		To = toState,
+		Condition = conditionFn
+	})
 end
 
 -- Return to past state
@@ -164,7 +220,7 @@ function StateMachine:Pop()
 		self.CurrentState:Exit(self.Context)
 		self.CurrentState:Cleanup()
 	end
-	
+
 	self.CurrentState = table.remove(self.StateStack)
 	if self.CurrentState then
 		self.CurrentState:Enter(self.Context)
@@ -172,14 +228,10 @@ function StateMachine:Pop()
 end
 
 -- Change to state for x seconds
-function StateMachine:ChangeFor(stateName: string, duration: number)
+function StateMachine:ChangeTimed(stateName, duration)
 	self:Push(stateName)
-
-	task.delay(duration, function()
-		if self.CurrentState and self.CurrentState.Name == stateName then
-			self:Pop()
-		end
-	end)
+	self._timer = duration
+	self._timedActive = true
 end
 
 function StateMachine:Start()
@@ -229,6 +281,13 @@ function StateMachine:_checkConditionalTransitions()
 	if not transitions then return end
 
 	for _, data in ipairs(transitions) do
+		if data.Condition(self.Context) then
+			self:Change(data.To)
+			return
+		end
+	end
+	
+	for _, data in ipairs(self._globalTransitions) do
 		if data.Condition(self.Context) then
 			self:Change(data.To)
 			return
